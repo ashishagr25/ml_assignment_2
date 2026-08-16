@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/31115992/README.md)
 # Adult Census Income Classification — ML Assignment 2
 
 ## Problem Statement
