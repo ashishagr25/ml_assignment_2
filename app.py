@@ -80,11 +80,21 @@ def load_precomputed_metrics():
 st.sidebar.header("⚙️ Configuration")
 
 # CSV upload
+# Default dataset path
+DEFAULT_CSV = "test_data.csv"
+
 uploaded_file = st.sidebar.file_uploader(
     "📂 Upload Test Data (CSV)",
-    type=['csv'],
-    help="Upload a CSV with Adult Income features. Must include an 'income' column (0 or 1)."
+    type=["csv"],
+    help="Upload your own CSV or use the default test_data.csv"
 )
+# Use uploaded file if provided, otherwise use default CSV
+if uploaded_file is not None:
+    df_source = uploaded_file
+    st.sidebar.success("Using uploaded file")
+else:
+    df_source = DEFAULT_CSV
+    st.sidebar.info("Using default file: test_data.csv")
 
 # Model selection dropdown
 selected_model_name = st.sidebar.selectbox(
@@ -111,113 +121,111 @@ tab1, tab2, tab3 = st.tabs(["📊 Model Evaluation", "📈 All Models Comparison
 # TAB 1: Model Evaluation on Uploaded Data
 # ══════════════════════════════════════════════════════════════════════════════
 with tab1:
-    if uploaded_file is not None:
-        try:
-            df = pd.read_csv(uploaded_file)
-            st.success(f"✅ Dataset loaded: **{len(df)} rows × {len(df.columns)} columns**")
+    try:
+        df = pd.read_csv(df_source)
+        st.success(f"✅ Dataset loaded: **{len(df)} rows × {len(df.columns)} columns**")
 
-            with st.expander("🔍 Preview Uploaded Data (first 10 rows)"):
-                st.dataframe(df.head(10), use_container_width=True)
+        with st.expander("🔍 Preview Uploaded Data (first 10 rows)"):
+            st.dataframe(df.head(10), use_container_width=True)
 
-            if 'income' not in df.columns:
-                st.error("❌ The uploaded CSV must contain an **'income'** column (0 = ≤50K, 1 = >50K).")
-            else:
-                X = df.drop('income', axis=1)
-                y = df['income'].astype(int)
+        if 'income' not in df.columns:
+            st.error("❌ The uploaded CSV must contain an **'income'** column (0 = ≤50K, 1 = >50K).")
+        else:
+            X = df.drop('income', axis=1)
+            y = df['income'].astype(int)
 
-                # Validate feature columns
-                missing_cols = [c for c in EXPECTED_COLS if c not in X.columns]
-                if missing_cols:
-                    st.error(f"❌ Missing required columns: {missing_cols}")
-                    st.stop()
+            # Validate feature columns
+            missing_cols = [c for c in EXPECTED_COLS if c not in X.columns]
+            if missing_cols:
+                st.error(f"❌ Missing required columns: {missing_cols}")
+                st.stop()
 
-                model_path = MODEL_FILES[selected_model_name]
-                if not os.path.exists(model_path):
-                    st.error(f"Model file not found: `{model_path}`. "
-                             "Run `train_models.py` first to train and save the models.")
-                    st.stop()
+            model_path = MODEL_FILES[selected_model_name]
+            if not os.path.exists(model_path):
+                st.error(f"Model file not found: `{model_path}`. "
+                         "Run `train_models.py` first to train and save the models.")
+                st.stop()
 
-                with st.spinner(f"Running {selected_model_name}..."):
-                    model = load_model(model_path)
-                    y_pred  = model.predict(X)
-                    y_proba = model.predict_proba(X)[:, 1]
+            with st.spinner(f"Running {selected_model_name}..."):
+                model = load_model(model_path)
+                y_pred  = model.predict(X)
+                y_proba = model.predict_proba(X)[:, 1]
 
-                # ── Evaluation Metrics ──
-                metrics = {
-                    'Accuracy':  round(float(accuracy_score(y, y_pred)), 4),
-                    'AUC Score': round(float(roc_auc_score(y, y_proba)), 4),
-                    'Precision': round(float(precision_score(y, y_pred, zero_division=0)), 4),
-                    'Recall':    round(float(recall_score(y, y_pred, zero_division=0)), 4),
-                    'F1 Score':  round(float(f1_score(y, y_pred, zero_division=0)), 4),
-                    'MCC':       round(float(matthews_corrcoef(y, y_pred)), 4)
-                }
+            # ── Evaluation Metrics ──
+            metrics = {
+                'Accuracy':  round(float(accuracy_score(y, y_pred)), 4),
+                'AUC Score': round(float(roc_auc_score(y, y_proba)), 4),
+                'Precision': round(float(precision_score(y, y_pred, zero_division=0)), 4),
+                'Recall':    round(float(recall_score(y, y_pred, zero_division=0)), 4),
+                'F1 Score':  round(float(f1_score(y, y_pred, zero_division=0)), 4),
+                'MCC':       round(float(matthews_corrcoef(y, y_pred)), 4)
+            }
 
-                st.subheader(f"📊 Evaluation Metrics — {selected_model_name}")
-                metric_cols = st.columns(6)
-                for i, (mname, val) in enumerate(metrics.items()):
-                    metric_cols[i].metric(label=mname, value=f"{val:.4f}")
+            st.subheader(f"📊 Evaluation Metrics — {selected_model_name}")
+            metric_cols = st.columns(6)
+            for i, (mname, val) in enumerate(metrics.items()):
+                metric_cols[i].metric(label=mname, value=f"{val:.4f}")
 
-                st.divider()
-                col_cm, col_cr = st.columns(2)
+            st.divider()
+            col_cm, col_cr = st.columns(2)
 
-                # ── Confusion Matrix ──
-                with col_cm:
-                    st.subheader("🔢 Confusion Matrix")
-                    cm = confusion_matrix(y, y_pred)
-                    fig_cm, ax_cm = plt.subplots(figsize=(5, 4))
-                    sns.heatmap(
-                        cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm,
-                        xticklabels=['≤50K (0)', '>50K (1)'],
-                        yticklabels=['≤50K (0)', '>50K (1)']
-                    )
-                    ax_cm.set_xlabel('Predicted Label', fontsize=11)
-                    ax_cm.set_ylabel('True Label', fontsize=11)
-                    ax_cm.set_title(f'{selected_model_name}', fontsize=12)
-                    plt.tight_layout()
-                    st.pyplot(fig_cm)
-                    plt.close(fig_cm)
+            # ── Confusion Matrix ──
+            with col_cm:
+                st.subheader("🔢 Confusion Matrix")
+                cm = confusion_matrix(y, y_pred)
+                fig_cm, ax_cm = plt.subplots(figsize=(5, 4))
+                sns.heatmap(
+                    cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm,
+                    xticklabels=['≤50K (0)', '>50K (1)'],
+                    yticklabels=['≤50K (0)', '>50K (1)']
+                )
+                ax_cm.set_xlabel('Predicted Label', fontsize=11)
+                ax_cm.set_ylabel('True Label', fontsize=11)
+                ax_cm.set_title(f'{selected_model_name}', fontsize=12)
+                plt.tight_layout()
+                st.pyplot(fig_cm)
+                plt.close(fig_cm)
 
-                # ── Classification Report ──
-                with col_cr:
-                    st.subheader("📋 Classification Report")
-                    report_dict = classification_report(
-                        y, y_pred,
-                        target_names=['≤50K (0)', '>50K (1)'],
-                        output_dict=True
-                    )
-                    report_df = pd.DataFrame(report_dict).transpose()
-                    st.dataframe(report_df.round(4), use_container_width=True)
+            # ── Classification Report ──
+            with col_cr:
+                st.subheader("📋 Classification Report")
+                report_dict = classification_report(
+                    y, y_pred,
+                    target_names=['≤50K (0)', '>50K (1)'],
+                    output_dict=True
+                )
+                report_df = pd.DataFrame(report_dict).transpose()
+                st.dataframe(report_df.round(4), use_container_width=True)
 
-        except Exception as e:
-            st.error(f"Error processing file: {e}")
+    except Exception as e:
+        st.error(f"Error processing file: {e}")
 
-    else:
-        st.info("👆 Upload a test CSV file from the sidebar to evaluate a model.")
-        st.markdown("""
-        ### How to Use
-        1. **Upload** `test_data.csv` (from GitHub repo) via the sidebar
-        2. **Select** a model from the dropdown
-        3. View **evaluation metrics**, **confusion matrix**, and **classification report**
+    
+    st.markdown("""
+    ### How to Use
+    1. **Upload** `test_data.csv` (from GitHub repo) via the sidebar
+    2. **Select** a model from the dropdown
+    3. View **evaluation metrics**, **confusion matrix**, and **classification report**
 
-        ### Dataset Features
-        | Feature | Type | Description |
-        |---------|------|-------------|
-        | age | Numerical | Age of the individual |
-        | workclass | Categorical | Employment type |
-        | fnlwgt | Numerical | Census weight |
-        | education | Categorical | Education level |
-        | education_num | Numerical | Education years |
-        | marital_status | Categorical | Marital status |
-        | occupation | Categorical | Job type |
-        | relationship | Categorical | Relationship status |
-        | race | Categorical | Race |
-        | sex | Categorical | Gender |
-        | capital_gain | Numerical | Capital gains |
-        | capital_loss | Numerical | Capital losses |
-        | hours_per_week | Numerical | Work hours/week |
-        | native_country | Categorical | Country of origin |
-        | **income** | **Target** | **0=≤50K, 1=>50K** |
-        """)
+    ### Dataset Features
+    | Feature | Type | Description |
+    |---------|------|-------------|
+    | age | Numerical | Age of the individual |
+    | workclass | Categorical | Employment type |
+    | fnlwgt | Numerical | Census weight |
+    | education | Categorical | Education level |
+    | education_num | Numerical | Education years |
+    | marital_status | Categorical | Marital status |
+    | occupation | Categorical | Job type |
+    | relationship | Categorical | Relationship status |
+    | race | Categorical | Race |
+    | sex | Categorical | Gender |
+    | capital_gain | Numerical | Capital gains |
+    | capital_loss | Numerical | Capital losses |
+    | hours_per_week | Numerical | Work hours/week |
+    | native_country | Categorical | Country of origin |
+    | **income** | **Target** | **0=≤50K, 1=>50K** |
+    """)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2: All Models Comparison
